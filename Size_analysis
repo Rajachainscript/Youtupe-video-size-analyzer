@@ -1,0 +1,77 @@
+from googleapiclient.discovery import build
+import yt_dlp
+import time
+
+# Your YouTube Data API key and Channel ID
+API_KEY = "AIzaSyDUM7Mi_P82ePNWsxAgBbtjzxFIC61u2kE"
+CHANNEL_ID = "UC5AxVCqq0EjHgr1v0xO7W4A"
+
+# Create YouTube API client  
+youtube = build("youtube", "v3", developerKey=API_KEY)
+  
+# Get the uploads playlist ID for a channel
+def get_uploads_playlist_id(channel_id):
+    res = youtube.channels().list(part="contentDetails", id=channel_id).execute()
+    return res["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
+
+# Get all video IDs from the uploads playlist
+def get_all_video_ids(playlist_id):
+    video_ids = []
+    next_page_token = None
+    while True:
+        res = youtube.playlistItems().list(
+            part="snippet",
+            playlistId=playlist_id,
+            maxResults=50,
+            pageToken=next_page_token
+        ).execute()
+
+        for item in res["items"]:
+            video_ids.append(item["snippet"]["resourceId"]["videoId"])
+
+        next_page_token = res.get("nextPageToken")
+        if not next_page_token:
+            break
+    return video_ids
+
+# Get video size (in MB) and title using yt_dlp
+def get_video_size_ytdlp(video_id):
+    url = f"https://www.youtube.com/watch?v={video_id}"
+    try:
+        ydl_opts = {}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            filesize = info.get('filesize') or info.get('filesize_approx')
+            title = info.get('title', 'Unknown Title')
+            if filesize:
+                return round(filesize / (1024 * 1024), 2), title
+            else:
+                return 0, title
+    except Exception as e:
+        print(f"Error with video {video_id}: {e}")
+        return 0, "Error"
+
+# Main program
+if __name__ == "__main__":
+    playlist_id = get_uploads_playlist_id(CHANNEL_ID)
+    video_ids = get_all_video_ids(playlist_id)
+
+    total_videos = 0
+    total_size = 0
+
+    print(f"\nFound {len(video_ids)} videos in the channel.")
+    print("Calculating video sizes...\n")
+
+    for idx, vid in enumerate(video_ids, start=1):
+        size, title = get_video_size_ytdlp(vid)
+        if size > 0:
+            total_videos += 1
+            total_size += size
+            print(f"[{idx}] {title} => {size} MB | Running Total: {round(total_size, 2)} MB")
+        else:
+            print(f"[{idx}] {title} => Size not available or Error")
+        time.sleep(0.3)
+
+    print("\nSummary:")  
+    print(f"Valid videos counted: {total_videos}")
+    print(f"Total size of all videos: {round(total_size, 2)} MB")
